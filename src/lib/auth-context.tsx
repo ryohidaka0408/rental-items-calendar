@@ -8,25 +8,22 @@ import {
   type ReactNode,
 } from "react";
 import {
-  createUserWithEmailAndPassword,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
-  updateProfile,
   type User,
 } from "firebase/auth";
-import { auth, googleProvider } from "./firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db, googleProvider } from "./firebase";
+
+export type AuthorizationState = "checking" | "authorized" | "denied";
 
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
+  authorization: AuthorizationState;
   signInWithEmail: (email: string, password: string) => Promise<void>;
-  signUpWithEmail: (
-    email: string,
-    password: string,
-    displayName: string
-  ) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
 };
@@ -36,6 +33,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authorization, setAuthorization] = useState<AuthorizationState>("checking");
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
@@ -45,17 +43,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    if (!user?.email) {
+      return;
+    }
+    let cancelled = false;
+    getDoc(doc(db, "allowedUsers", user.email))
+      .then((snapshot) => {
+        if (!cancelled) setAuthorization(snapshot.exists() ? "authorized" : "denied");
+      })
+      .catch(() => {
+        // allowedUsersに未登録の場合、Firestoreルールによりpermission-deniedで拒否される
+        if (!cancelled) setAuthorization("denied");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
   const value: AuthContextValue = {
     user,
     loading,
+    authorization,
     async signInWithEmail(email, password) {
       await signInWithEmailAndPassword(auth, email, password);
-    },
-    async signUpWithEmail(email, password, displayName) {
-      const credential = await createUserWithEmailAndPassword(auth, email, password);
-      if (displayName) {
-        await updateProfile(credential.user, { displayName });
-      }
     },
     async signInWithGoogle() {
       await signInWithPopup(auth, googleProvider);

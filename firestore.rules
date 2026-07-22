@@ -2,8 +2,15 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // allowedUsersコレクションに自分のメールアドレスのドキュメントが
+    // 存在する場合のみ利用を許可する(ドキュメントIDは許可するメールアドレス)
+    function isAllowedUser() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/allowedUsers/$(request.auth.token.email));
+    }
+
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAllowedUser();
     }
   }
 }
