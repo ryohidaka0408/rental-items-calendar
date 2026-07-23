@@ -32,7 +32,7 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
   const [customerName, setCustomerName] = useState(editingReservation?.customerName ?? "");
   const [color, setColor] = useState(editingReservation?.color ?? DEFAULT_COLOR);
   const [equipmentIds, setEquipmentIds] = useState<string[]>(() => {
-    const initialIds = editingReservation?.items.map((item) => item.equipmentId) ?? [];
+    const initialIds = editingReservation?.items?.map((item) => item.equipmentId) ?? [];
     return initialIds.length > 0 ? initialIds : [equipmentList[0]?.id ?? ""];
   });
   const [start, setStart] = useState(

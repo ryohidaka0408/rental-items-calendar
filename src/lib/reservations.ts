@@ -187,7 +187,7 @@ export async function getActiveReservationCounts(
   snapshot.docs.forEach((docSnapshot) => {
     const reservation = toReservation(docSnapshot.id, docSnapshot.data());
     if (reservation.start <= nowISO && reservation.end >= nowISO) {
-      reservation.equipmentIds.forEach((equipmentId) => {
+      (reservation.equipmentIds ?? []).forEach((equipmentId) => {
         counts[equipmentId] = (counts[equipmentId] ?? 0) + 1;
       });
     }

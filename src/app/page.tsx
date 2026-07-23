@@ -42,7 +42,7 @@ export default function HomePage() {
                 <div className="text-ink">
                   <span className="font-medium">{reservation.customerName}</span>
                   <span className="mx-2 text-muted">/</span>
-                  <span>{reservation.items.map((item) => item.equipmentName).join(" / ")}</span>
+                  <span>{(reservation.items ?? []).map((item) => item.equipmentName).join(" / ")}</span>
                 </div>
                 <div className="text-muted">
                   返却期限: {formatDateTimeJa(reservation.end)}
