@@ -6,7 +6,7 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import jaLocale from "@fullcalendar/core/locales/ja";
-import type { DateSelectArg, EventClickArg } from "@fullcalendar/core";
+import type { DateSelectArg, EventClickArg, EventHoveringArg } from "@fullcalendar/core";
 import { subscribeEquipment } from "@/lib/equipment";
 import { subscribeReservations } from "@/lib/reservations";
 import type { Equipment, Reservation } from "@/lib/types";
@@ -18,6 +18,11 @@ export function CalendarView() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [equipmentList, setEquipmentList] = useState<Equipment[]>([]);
   const [modalState, setModalState] = useState<ReservationModalState | null>(null);
+  const [hoveredReservation, setHoveredReservation] = useState<{
+    reservation: Reservation;
+    x: number;
+    y: number;
+  } | null>(null);
 
   useEffect(() => {
     const unsubscribeReservations = subscribeReservations(setReservations);
@@ -60,6 +65,19 @@ export function CalendarView() {
     setModalState({ mode: "edit", reservation });
   }
 
+  function handleEventMouseEnter(info: EventHoveringArg) {
+    const reservation = info.event.extendedProps.reservation as Reservation;
+    setHoveredReservation({
+      reservation,
+      x: info.jsEvent.clientX,
+      y: info.jsEvent.clientY,
+    });
+  }
+
+  function handleEventMouseLeave() {
+    setHoveredReservation(null);
+  }
+
   return (
     <div className="rounded-xl border border-line bg-paper p-4 shadow-sm">
       <FullCalendar
@@ -77,6 +95,8 @@ export function CalendarView() {
         events={events}
         select={handleSelect}
         eventClick={handleEventClick}
+        eventMouseEnter={handleEventMouseEnter}
+        eventMouseLeave={handleEventMouseLeave}
         height="auto"
       />
       {modalState && (
@@ -85,6 +105,19 @@ export function CalendarView() {
           initial={modalState}
           onClose={() => setModalState(null)}
         />
+      )}
+      {hoveredReservation && (
+        <div
+          className="pointer-events-none fixed z-50 max-w-xs rounded-md border border-line bg-paper px-3 py-2 text-sm shadow-lg"
+          style={{ left: hoveredReservation.x + 12, top: hoveredReservation.y + 12 }}
+        >
+          <p className="font-medium text-ink">貸出製品</p>
+          <ul className="mt-1 flex flex-col gap-0.5 text-muted">
+            {(hoveredReservation.reservation.items ?? []).map((item) => (
+              <li key={item.equipmentId}>{item.equipmentName}</li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
