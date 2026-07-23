@@ -27,6 +27,7 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
   const isEdit = initial.mode === "edit";
   const editingReservation = initial.mode === "edit" ? initial.reservation : null;
 
+  const [customerName, setCustomerName] = useState(editingReservation?.customerName ?? "");
   const [equipmentId, setEquipmentId] = useState(
     editingReservation?.equipmentId ?? equipmentList[0]?.id ?? ""
   );
@@ -94,6 +95,7 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
         await updateReservation(
           editingReservation.id,
           {
+            customerName: customerName.trim(),
             equipmentId: selectedEquipment.id,
             equipmentName: selectedEquipment.name,
             start: submitStartISO,
@@ -108,6 +110,7 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
       } else {
         await addReservation(
           {
+            customerName: customerName.trim(),
             equipmentId: selectedEquipment.id,
             equipmentName: selectedEquipment.name,
             start: submitStartISO,
@@ -148,6 +151,17 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
       <div className="w-full max-w-md rounded-xl bg-paper p-6 shadow-lg">
         <h2 className="text-lg font-semibold text-ink">{isEdit ? "予約の編集" : "新規予約"}</h2>
         <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-4">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-ink">顧客名</span>
+            <input
+              type="text"
+              className="rounded-md border border-line px-3 py-2 text-sm"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              required
+            />
+          </label>
+
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-ink">機器</span>
             <select

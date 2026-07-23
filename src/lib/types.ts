@@ -13,6 +13,7 @@ export type EquipmentInput = Omit<Equipment, "id" | "createdAt" | "updatedAt">;
 export type ReservationStatus = "confirmed" | "cancelled";
 
 export type ReservationInput = {
+  customerName: string;
   equipmentId: string;
   equipmentName: string;
   start: string;

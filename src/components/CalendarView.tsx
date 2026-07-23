@@ -44,7 +44,7 @@ export function CalendarView() {
           const color = colorForEquipment(reservation.equipmentId, equipmentIds);
           return {
             id: reservation.id,
-            title: `${reservation.equipmentName} / ${reservation.reservedByName}`,
+            title: `${reservation.customerName} / ${reservation.equipmentName}`,
             start: reservation.start,
             end: reservation.end,
             backgroundColor: color,
