@@ -40,9 +40,9 @@ export default function HomePage() {
                 className="flex flex-col gap-1 rounded-lg bg-paper px-3 py-2 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="text-ink">
-                  <span className="font-medium">{reservation.equipmentName}</span>
+                  <span className="font-medium">{reservation.customerName}</span>
                   <span className="mx-2 text-muted">/</span>
-                  <span>{reservation.reservedByName}</span>
+                  <span>{reservation.items.map((item) => item.equipmentName).join(" / ")}</span>
                 </div>
                 <div className="text-muted">
                   返却期限: {formatDateTimeJa(reservation.end)}

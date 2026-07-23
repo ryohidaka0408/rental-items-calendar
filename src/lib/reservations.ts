@@ -34,7 +34,7 @@ export async function getReservationsByEquipment(
 ): Promise<Reservation[]> {
   const q = query(
     reservationsCollection,
-    where("equipmentId", "==", equipmentId),
+    where("equipmentIds", "array-contains", equipmentId),
     where("status", "==", "confirmed")
   );
   const snapshot = await getDocs(q);
@@ -86,30 +86,47 @@ export async function checkAvailability(
 }
 
 export class ReservationConflictError extends Error {
+  equipmentName: string;
   availability: AvailabilityResult;
 
-  constructor(availability: AvailabilityResult) {
+  constructor(equipmentName: string, availability: AvailabilityResult) {
     super(
-      `指定の時間帯は在庫が埋まっています(${availability.reservedCount}/${availability.quantity}台予約済み)`
+      `${equipmentName}: 指定の時間帯は在庫が埋まっています(${availability.reservedCount}/${availability.quantity}台予約済み)`
     );
     this.name = "ReservationConflictError";
+    this.equipmentName = equipmentName;
     this.availability = availability;
+  }
+}
+
+/** equipmentId ごとの保有台数(quantity) */
+type QuantityByEquipmentId = Record<string, number>;
+
+async function assertItemsAvailable(
+  input: ReservationInput,
+  quantities: QuantityByEquipmentId,
+  excludeReservationId?: string
+): Promise<void> {
+  for (const item of input.items) {
+    const quantity = quantities[item.equipmentId] ?? 0;
+    const availability = await checkAvailability(
+      item.equipmentId,
+      quantity,
+      input.start,
+      input.end,
+      excludeReservationId
+    );
+    if (!availability.isAvailable) {
+      throw new ReservationConflictError(item.equipmentName, availability);
+    }
   }
 }
 
 export async function addReservation(
   input: ReservationInput,
-  quantity: number
+  quantities: QuantityByEquipmentId
 ): Promise<string> {
-  const availability = await checkAvailability(
-    input.equipmentId,
-    quantity,
-    input.start,
-    input.end
-  );
-  if (!availability.isAvailable) {
-    throw new ReservationConflictError(availability);
-  }
+  await assertItemsAvailable(input, quantities);
   const now = new Date().toISOString();
   const docRef = await addDoc(reservationsCollection, {
     ...input,
@@ -123,18 +140,9 @@ export async function addReservation(
 export async function updateReservation(
   id: string,
   input: ReservationInput,
-  quantity: number
+  quantities: QuantityByEquipmentId
 ): Promise<void> {
-  const availability = await checkAvailability(
-    input.equipmentId,
-    quantity,
-    input.start,
-    input.end,
-    id
-  );
-  if (!availability.isAvailable) {
-    throw new ReservationConflictError(availability);
-  }
+  await assertItemsAvailable(input, quantities, id);
   await updateDoc(doc(db, "reservations", id), {
     ...input,
     updatedAt: new Date().toISOString(),
@@ -179,7 +187,9 @@ export async function getActiveReservationCounts(
   snapshot.docs.forEach((docSnapshot) => {
     const reservation = toReservation(docSnapshot.id, docSnapshot.data());
     if (reservation.start <= nowISO && reservation.end >= nowISO) {
-      counts[reservation.equipmentId] = (counts[reservation.equipmentId] ?? 0) + 1;
+      reservation.equipmentIds.forEach((equipmentId) => {
+        counts[equipmentId] = (counts[equipmentId] ?? 0) + 1;
+      });
     }
   });
   return counts;

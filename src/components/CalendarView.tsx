@@ -12,13 +12,7 @@ import { subscribeReservations } from "@/lib/reservations";
 import type { Equipment, Reservation } from "@/lib/types";
 import { ReservationModal, type ReservationModalState } from "./ReservationModal";
 
-const EVENT_COLORS = ["#2563eb", "#b45309", "#0f766e", "#7c3aed", "#be123c", "#0369a1"];
-
-function colorForEquipment(equipmentId: string, equipmentIds: string[]): string {
-  const index = equipmentIds.indexOf(equipmentId);
-  if (index < 0) return "var(--brand)";
-  return EVENT_COLORS[index % EVENT_COLORS.length];
-}
+const DEFAULT_EVENT_COLOR = "#2563eb";
 
 export function CalendarView() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -34,17 +28,18 @@ export function CalendarView() {
     };
   }, []);
 
-  const equipmentIds = useMemo(() => equipmentList.map((item) => item.id), [equipmentList]);
-
   const events = useMemo(
     () =>
       reservations
         .filter((reservation) => reservation.status === "confirmed")
         .map((reservation) => {
-          const color = colorForEquipment(reservation.equipmentId, equipmentIds);
+          const color = reservation.color ?? DEFAULT_EVENT_COLOR;
+          const title = [reservation.customerName, ...(reservation.items ?? []).map((item) => item.equipmentName)]
+            .filter(Boolean)
+            .join(" / ");
           return {
             id: reservation.id,
-            title: `${reservation.customerName} / ${reservation.equipmentName}`,
+            title,
             start: reservation.start,
             end: reservation.end,
             backgroundColor: color,
@@ -52,7 +47,7 @@ export function CalendarView() {
             extendedProps: { reservation },
           };
         }),
-    [reservations, equipmentIds]
+    [reservations]
   );
 
   function handleSelect(selectInfo: DateSelectArg) {

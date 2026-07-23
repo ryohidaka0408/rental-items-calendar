@@ -22,15 +22,19 @@ type Props = {
   onClose: () => void;
 };
 
+const DEFAULT_COLOR = "#2563eb";
+
 export function ReservationModal({ equipmentList, initial, onClose }: Props) {
   const { user } = useAuth();
   const isEdit = initial.mode === "edit";
   const editingReservation = initial.mode === "edit" ? initial.reservation : null;
 
   const [customerName, setCustomerName] = useState(editingReservation?.customerName ?? "");
-  const [equipmentId, setEquipmentId] = useState(
-    editingReservation?.equipmentId ?? equipmentList[0]?.id ?? ""
-  );
+  const [color, setColor] = useState(editingReservation?.color ?? DEFAULT_COLOR);
+  const [equipmentIds, setEquipmentIds] = useState<string[]>(() => {
+    const initialIds = editingReservation?.items.map((item) => item.equipmentId) ?? [];
+    return initialIds.length > 0 ? initialIds : [equipmentList[0]?.id ?? ""];
+  });
   const [start, setStart] = useState(
     toDatetimeLocalValue(editingReservation?.start ?? (initial.mode === "create" ? initial.start : ""))
   );
@@ -38,13 +42,18 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
     toDatetimeLocalValue(editingReservation?.end ?? (initial.mode === "create" ? initial.end : ""))
   );
   const [note, setNote] = useState(editingReservation?.note ?? "");
-  const [availability, setAvailability] = useState<AvailabilityResult | null>(null);
+  const [availabilityByEquipmentId, setAvailabilityByEquipmentId] = useState<
+    Record<string, AvailabilityResult>
+  >({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selectedEquipment = useMemo(
-    () => equipmentList.find((item) => item.id === equipmentId) ?? null,
-    [equipmentList, equipmentId]
+  const selectedEquipmentList = useMemo(
+    () =>
+      equipmentIds
+        .map((id) => equipmentList.find((item) => item.id === id))
+        .filter((item): item is Equipment => Boolean(item)),
+    [equipmentList, equipmentIds]
   );
 
   const reservedByName = editingReservation?.reservedByName ?? (user ? getUserLabel(user) : "");
@@ -53,33 +62,52 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
   const startISO = start ? fromDatetimeLocalValue(start) : null;
   const endISO = end ? fromDatetimeLocalValue(end) : null;
   const isRangeValid = Boolean(
-    selectedEquipment && startISO && endISO && new Date(endISO) > new Date(startISO)
+    equipmentIds.every((id) => id) &&
+      selectedEquipmentList.length === equipmentIds.length &&
+      startISO &&
+      endISO &&
+      new Date(endISO) > new Date(startISO)
   );
 
   useEffect(() => {
-    if (!isRangeValid || !selectedEquipment || !startISO || !endISO) {
+    if (!isRangeValid || !startISO || !endISO) {
+      setAvailabilityByEquipmentId({});
       return;
     }
     let cancelled = false;
-    checkAvailability(
-      selectedEquipment.id,
-      selectedEquipment.quantity,
-      startISO,
-      endISO,
-      editingReservation?.id
-    ).then((result) => {
-      if (!cancelled) setAvailability(result);
+    Promise.all(
+      selectedEquipmentList.map((equipment) =>
+        checkAvailability(equipment.id, equipment.quantity, startISO, endISO, editingReservation?.id).then(
+          (result) => [equipment.id, result] as const
+        )
+      )
+    ).then((results) => {
+      if (!cancelled) setAvailabilityByEquipmentId(Object.fromEntries(results));
     });
     return () => {
       cancelled = true;
     };
-  }, [isRangeValid, selectedEquipment, startISO, endISO, editingReservation?.id]);
+  }, [isRangeValid, selectedEquipmentList, startISO, endISO, editingReservation?.id]);
 
-  const displayedAvailability = isRangeValid ? availability : null;
+  const displayedAvailability = isRangeValid ? availabilityByEquipmentId : {};
+  const isFull = Object.values(displayedAvailability).some((result) => !result.isAvailable);
+
+  function updateEquipmentAt(index: number, value: string) {
+    setEquipmentIds((prev) => prev.map((id, i) => (i === index ? value : id)));
+  }
+
+  function addEquipmentRow() {
+    const nextDefault = equipmentList.find((item) => !equipmentIds.includes(item.id))?.id ?? "";
+    setEquipmentIds((prev) => [...prev, nextDefault]);
+  }
+
+  function removeEquipmentAt(index: number) {
+    setEquipmentIds((prev) => prev.filter((_, i) => i !== index));
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!user || !selectedEquipment) return;
+    if (!user || !isRangeValid) return;
 
     const submitStartISO = fromDatetimeLocalValue(start);
     const submitEndISO = fromDatetimeLocalValue(end);
@@ -87,6 +115,14 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
       setError("終了時刻は開始時刻より後にしてください");
       return;
     }
+
+    const items = selectedEquipmentList.map((equipment) => ({
+      equipmentId: equipment.id,
+      equipmentName: equipment.name,
+    }));
+    const quantities = Object.fromEntries(
+      selectedEquipmentList.map((equipment) => [equipment.id, equipment.quantity])
+    );
 
     setSubmitting(true);
     setError(null);
@@ -96,8 +132,9 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
           editingReservation.id,
           {
             customerName: customerName.trim(),
-            equipmentId: selectedEquipment.id,
-            equipmentName: selectedEquipment.name,
+            color,
+            items,
+            equipmentIds: items.map((item) => item.equipmentId),
             start: submitStartISO,
             end: submitEndISO,
             reservedByUid: editingReservation.reservedByUid,
@@ -105,14 +142,15 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
             reservedByEmail: editingReservation.reservedByEmail,
             note: note.trim() || undefined,
           },
-          selectedEquipment.quantity
+          quantities
         );
       } else {
         await addReservation(
           {
             customerName: customerName.trim(),
-            equipmentId: selectedEquipment.id,
-            equipmentName: selectedEquipment.name,
+            color,
+            items,
+            equipmentIds: items.map((item) => item.equipmentId),
             start: submitStartISO,
             end: submitEndISO,
             reservedByUid: user.uid,
@@ -120,7 +158,7 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
             reservedByEmail: user.email ?? "",
             note: note.trim() || undefined,
           },
-          selectedEquipment.quantity
+          quantities
         );
       }
       onClose();
@@ -144,8 +182,6 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
     }
   }
 
-  const isFull = displayedAvailability ? !displayedAvailability.isAvailable : false;
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
       <div className="w-full max-w-md rounded-xl bg-paper p-6 shadow-lg">
@@ -162,23 +198,59 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
             />
           </label>
 
-          <label className="flex flex-col gap-1 text-sm">
+          <div className="flex flex-col gap-2 text-sm">
             <span className="font-medium text-ink">機器</span>
-            <select
-              className="rounded-md border border-line px-3 py-2 text-sm"
-              value={equipmentId}
-              onChange={(e) => setEquipmentId(e.target.value)}
-              required
+            {equipmentIds.map((id, index) => (
+              <div key={index} className="flex items-center gap-2">
+                <select
+                  className="flex-1 rounded-md border border-line px-3 py-2 text-sm"
+                  value={id}
+                  onChange={(e) => updateEquipmentAt(index, e.target.value)}
+                  required
+                >
+                  <option value="" disabled>
+                    選択してください
+                  </option>
+                  {equipmentList.map((item) => (
+                    <option
+                      key={item.id}
+                      value={item.id}
+                      disabled={item.id !== id && equipmentIds.includes(item.id)}
+                    >
+                      {`${item.name}(保有${item.quantity}台)`}
+                    </option>
+                  ))}
+                </select>
+                {equipmentIds.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeEquipmentAt(index)}
+                    aria-label="この機器を削除"
+                    className="rounded-md px-2 py-2 text-sm text-muted hover:bg-surface"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addEquipmentRow}
+              disabled={equipmentIds.length >= equipmentList.length}
+              className="self-start rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <option value="" disabled>
-                選択してください
-              </option>
-              {equipmentList.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {`${item.name}(保有${item.quantity}台)`}
-                </option>
-              ))}
-            </select>
+              + 機器を追加
+            </button>
+          </div>
+
+          <label className="flex items-center gap-3 text-sm">
+            <span className="font-medium text-ink">色</span>
+            <input
+              type="color"
+              className="h-9 w-16 rounded-md border border-line p-1"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+            />
           </label>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -204,16 +276,26 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
             </label>
           </div>
 
-          {displayedAvailability && (
-            <p
-              className={`rounded-md px-3 py-2 text-sm ${
-                isFull ? "bg-rust/10 text-rust" : "bg-surface text-muted"
-              }`}
-            >
-              {isFull
-                ? `指定の時間帯は在庫が埋まっています(${displayedAvailability.reservedCount}/${displayedAvailability.quantity}台予約済み)`
-                : `在庫状況: ${displayedAvailability.reservedCount}/${displayedAvailability.quantity}台予約済み(残り${displayedAvailability.remaining}台)`}
-            </p>
+          {isRangeValid && selectedEquipmentList.length > 0 && (
+            <div className="flex flex-col gap-2">
+              {selectedEquipmentList.map((equipment) => {
+                const result = displayedAvailability[equipment.id];
+                if (!result) return null;
+                const full = !result.isAvailable;
+                return (
+                  <p
+                    key={equipment.id}
+                    className={`rounded-md px-3 py-2 text-sm ${
+                      full ? "bg-rust/10 text-rust" : "bg-surface text-muted"
+                    }`}
+                  >
+                    {full
+                      ? `${equipment.name}: 指定の時間帯は在庫が埋まっています(${result.reservedCount}/${result.quantity}台予約済み)`
+                      : `${equipment.name}: 在庫状況 ${result.reservedCount}/${result.quantity}台予約済み(残り${result.remaining}台)`}
+                  </p>
+                );
+              })}
+            </div>
           )}
 
           <label className="flex flex-col gap-1 text-sm">
@@ -261,7 +343,7 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
               </button>
               <button
                 type="submit"
-                disabled={submitting || isFull}
+                disabled={submitting || isFull || !isRangeValid}
                 className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isEdit ? "更新する" : "予約する"}
