@@ -9,7 +9,7 @@ import {
   updateReservation,
   type AvailabilityResult,
 } from "@/lib/reservations";
-import { fromDatetimeLocalValue, toDatetimeLocalValue } from "@/lib/datetime";
+import { endOfDayISO, startOfDayISO, toDateInputValue } from "@/lib/datetime";
 import type { Equipment, Reservation } from "@/lib/types";
 
 export type ReservationModalState =
@@ -24,6 +24,11 @@ type Props = {
 
 const DEFAULT_COLOR = "#2563eb";
 
+type EquipmentRow = {
+  equipmentId: string;
+  quantity: number;
+};
+
 export function ReservationModal({ equipmentList, initial, onClose }: Props) {
   const { user } = useAuth();
   const isEdit = initial.mode === "edit";
@@ -31,15 +36,28 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
 
   const [customerName, setCustomerName] = useState(editingReservation?.customerName ?? "");
   const [color, setColor] = useState(editingReservation?.color ?? DEFAULT_COLOR);
-  const [equipmentIds, setEquipmentIds] = useState<string[]>(() => {
-    const initialIds = editingReservation?.items?.map((item) => item.equipmentId) ?? [];
-    return initialIds.length > 0 ? initialIds : [equipmentList[0]?.id ?? ""];
+  const [rows, setRows] = useState<EquipmentRow[]>(() => {
+    const initialRows = editingReservation?.items?.map((item) => ({
+      equipmentId: item.equipmentId,
+      quantity: item.quantity,
+    }));
+    return initialRows && initialRows.length > 0
+      ? initialRows
+      : [{ equipmentId: equipmentList[0]?.id ?? "", quantity: 1 }];
   });
   const [start, setStart] = useState(
-    toDatetimeLocalValue(editingReservation?.start ?? (initial.mode === "create" ? initial.start : ""))
+    editingReservation
+      ? toDateInputValue(editingReservation.start)
+      : initial.mode === "create"
+        ? initial.start
+        : ""
   );
   const [end, setEnd] = useState(
-    toDatetimeLocalValue(editingReservation?.end ?? (initial.mode === "create" ? initial.end : ""))
+    editingReservation
+      ? toDateInputValue(editingReservation.end)
+      : initial.mode === "create"
+        ? initial.end
+        : ""
   );
   const [note, setNote] = useState(editingReservation?.note ?? "");
   const [availabilityByEquipmentId, setAvailabilityByEquipmentId] = useState<
@@ -48,38 +66,46 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selectedEquipmentList = useMemo(
+  const selectedRows = useMemo(
     () =>
-      equipmentIds
-        .map((id) => equipmentList.find((item) => item.id === id))
-        .filter((item): item is Equipment => Boolean(item)),
-    [equipmentList, equipmentIds]
+      rows
+        .map((row) => {
+          const equipment = equipmentList.find((item) => item.id === row.equipmentId);
+          return equipment ? { equipment, quantity: row.quantity } : null;
+        })
+        .filter((row): row is { equipment: Equipment; quantity: number } => Boolean(row)),
+    [equipmentList, rows]
   );
 
   const reservedByName = editingReservation?.reservedByName ?? (user ? getUserLabel(user) : "");
   const reservedByEmail = editingReservation?.reservedByEmail ?? user?.email ?? "";
 
-  const startISO = start ? fromDatetimeLocalValue(start) : null;
-  const endISO = end ? fromDatetimeLocalValue(end) : null;
+  const startISO = start ? startOfDayISO(start) : null;
+  const endISO = end ? endOfDayISO(end) : null;
   const isRangeValid = Boolean(
-    equipmentIds.every((id) => id) &&
-      selectedEquipmentList.length === equipmentIds.length &&
+    rows.every((row) => row.equipmentId) &&
+      rows.every((row) => Number.isInteger(row.quantity) && row.quantity >= 1) &&
+      selectedRows.length === rows.length &&
       startISO &&
       endISO &&
-      new Date(endISO) > new Date(startISO)
+      end >= start
   );
 
   useEffect(() => {
     if (!isRangeValid || !startISO || !endISO) {
-      setAvailabilityByEquipmentId({});
       return;
     }
     let cancelled = false;
     Promise.all(
-      selectedEquipmentList.map((equipment) =>
-        checkAvailability(equipment.id, equipment.quantity, startISO, endISO, editingReservation?.id).then(
-          (result) => [equipment.id, result] as const
-        )
+      selectedRows.map(({ equipment, quantity }) =>
+        checkAvailability(
+          equipment.id,
+          equipment.quantity,
+          quantity,
+          startISO,
+          endISO,
+          editingReservation?.id
+        ).then((result) => [equipment.id, result] as const)
       )
     ).then((results) => {
       if (!cancelled) setAvailabilityByEquipmentId(Object.fromEntries(results));
@@ -87,41 +113,48 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [isRangeValid, selectedEquipmentList, startISO, endISO, editingReservation?.id]);
+  }, [isRangeValid, selectedRows, startISO, endISO, editingReservation?.id]);
 
   const displayedAvailability = isRangeValid ? availabilityByEquipmentId : {};
   const isFull = Object.values(displayedAvailability).some((result) => !result.isAvailable);
 
   function updateEquipmentAt(index: number, value: string) {
-    setEquipmentIds((prev) => prev.map((id, i) => (i === index ? value : id)));
+    setRows((prev) => prev.map((row, i) => (i === index ? { ...row, equipmentId: value } : row)));
+  }
+
+  function updateQuantityAt(index: number, value: number) {
+    setRows((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, quantity: Math.max(1, value) } : row))
+    );
   }
 
   function addEquipmentRow() {
-    const nextDefault = equipmentList.find((item) => !equipmentIds.includes(item.id))?.id ?? "";
-    setEquipmentIds((prev) => [...prev, nextDefault]);
+    const nextDefault = equipmentList.find((item) => !rows.some((row) => row.equipmentId === item.id))?.id ?? "";
+    setRows((prev) => [...prev, { equipmentId: nextDefault, quantity: 1 }]);
   }
 
   function removeEquipmentAt(index: number) {
-    setEquipmentIds((prev) => prev.filter((_, i) => i !== index));
+    setRows((prev) => prev.filter((_, i) => i !== index));
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!user || !isRangeValid) return;
 
-    const submitStartISO = fromDatetimeLocalValue(start);
-    const submitEndISO = fromDatetimeLocalValue(end);
-    if (new Date(submitEndISO) <= new Date(submitStartISO)) {
-      setError("終了時刻は開始時刻より後にしてください");
+    const submitStartISO = startOfDayISO(start);
+    const submitEndISO = endOfDayISO(end);
+    if (end < start) {
+      setError("終了日は開始日以降にしてください");
       return;
     }
 
-    const items = selectedEquipmentList.map((equipment) => ({
+    const items = selectedRows.map(({ equipment, quantity }) => ({
       equipmentId: equipment.id,
       equipmentName: equipment.name,
+      quantity,
     }));
     const quantities = Object.fromEntries(
-      selectedEquipmentList.map((equipment) => [equipment.id, equipment.quantity])
+      selectedRows.map(({ equipment }) => [equipment.id, equipment.quantity])
     );
 
     setSubmitting(true);
@@ -201,11 +234,11 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
 
             <div className="flex flex-col gap-2 text-sm">
               <span className="font-medium text-ink">機器</span>
-              {equipmentIds.map((id, index) => (
+              {rows.map((row, index) => (
                 <div key={index} className="flex items-center gap-2">
                   <select
                     className="flex-1 rounded-md border border-line px-3 py-2 text-sm"
-                    value={id}
+                    value={row.equipmentId}
                     onChange={(e) => updateEquipmentAt(index, e.target.value)}
                     required
                   >
@@ -216,13 +249,24 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
                       <option
                         key={item.id}
                         value={item.id}
-                        disabled={item.id !== id && equipmentIds.includes(item.id)}
+                        disabled={
+                          item.id !== row.equipmentId && rows.some((r) => r.equipmentId === item.id)
+                        }
                       >
                         {`${item.name}(保有${item.quantity}台)`}
                       </option>
                     ))}
                   </select>
-                  {equipmentIds.length > 1 && (
+                  <input
+                    type="number"
+                    min={1}
+                    aria-label="数量"
+                    className="w-20 rounded-md border border-line px-3 py-2 text-sm"
+                    value={row.quantity}
+                    onChange={(e) => updateQuantityAt(index, Number(e.target.value))}
+                    required
+                  />
+                  {rows.length > 1 && (
                     <button
                       type="button"
                       onClick={() => removeEquipmentAt(index)}
@@ -237,7 +281,7 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
               <button
                 type="button"
                 onClick={addEquipmentRow}
-                disabled={equipmentIds.length >= equipmentList.length}
+                disabled={rows.length >= equipmentList.length}
                 className="self-start rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
               >
                 + 機器を追加
@@ -256,9 +300,9 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-sm">
-                <span className="font-medium text-ink">開始日時</span>
+                <span className="font-medium text-ink">開始日</span>
                 <input
-                  type="datetime-local"
+                  type="date"
                   className="rounded-md border border-line px-3 py-2 text-sm"
                   value={start}
                   onChange={(e) => setStart(e.target.value)}
@@ -266,9 +310,9 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span className="font-medium text-ink">終了日時</span>
+                <span className="font-medium text-ink">終了日</span>
                 <input
-                  type="datetime-local"
+                  type="date"
                   className="rounded-md border border-line px-3 py-2 text-sm"
                   value={end}
                   onChange={(e) => setEnd(e.target.value)}
@@ -277,9 +321,9 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
               </label>
             </div>
 
-            {isRangeValid && selectedEquipmentList.length > 0 && (
+            {isRangeValid && selectedRows.length > 0 && (
               <div className="flex flex-col gap-2">
-                {selectedEquipmentList.map((equipment) => {
+                {selectedRows.map(({ equipment, quantity }) => {
                   const result = displayedAvailability[equipment.id];
                   if (!result) return null;
                   const full = !result.isAvailable;
@@ -291,8 +335,8 @@ export function ReservationModal({ equipmentList, initial, onClose }: Props) {
                       }`}
                     >
                       {full
-                        ? `${equipment.name}: 指定の時間帯は在庫が埋まっています(${result.reservedCount}/${result.quantity}台予約済み)`
-                        : `${equipment.name}: 在庫状況 ${result.reservedCount}/${result.quantity}台予約済み(残り${result.remaining}台)`}
+                        ? `${equipment.name}: 在庫が不足しています(保有${result.quantity}台中、既に${result.reservedCount}台予約済み。希望${quantity}台は確保できません)`
+                        : `${equipment.name}: 在庫状況 ${result.reservedCount}/${result.quantity}台予約済み(残り${result.remaining}台、今回${quantity}台使用)`}
                     </p>
                   );
                 })}

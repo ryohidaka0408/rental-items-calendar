@@ -3,16 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
-import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import jaLocale from "@fullcalendar/core/locales/ja";
 import type { DateSelectArg, EventClickArg, EventHoveringArg } from "@fullcalendar/core";
 import { subscribeEquipment } from "@/lib/equipment";
 import { subscribeReservations } from "@/lib/reservations";
 import type { Equipment, Reservation } from "@/lib/types";
+import { addDaysToDateString, toDateInputValue } from "@/lib/datetime";
 import { ReservationModal, type ReservationModalState } from "./ReservationModal";
 
 const DEFAULT_EVENT_COLOR = "#2563eb";
+
+function formatItemLabel(item: { equipmentName: string; quantity: number }): string {
+  return item.quantity > 1 ? `${item.equipmentName}×${item.quantity}` : item.equipmentName;
+}
 
 export function CalendarView() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -39,14 +43,18 @@ export function CalendarView() {
         .filter((reservation) => reservation.status === "confirmed")
         .map((reservation) => {
           const color = reservation.color ?? DEFAULT_EVENT_COLOR;
-          const title = [reservation.customerName, ...(reservation.items ?? []).map((item) => item.equipmentName)]
+          const title = [
+            reservation.customerName,
+            ...(reservation.items ?? []).map(formatItemLabel),
+          ]
             .filter(Boolean)
             .join(" / ");
           return {
             id: reservation.id,
             title,
-            start: reservation.start,
-            end: reservation.end,
+            start: toDateInputValue(reservation.start),
+            end: addDaysToDateString(toDateInputValue(reservation.end), 1),
+            allDay: true,
             backgroundColor: color,
             borderColor: color,
             extendedProps: { reservation },
@@ -56,7 +64,8 @@ export function CalendarView() {
   );
 
   function handleSelect(selectInfo: DateSelectArg) {
-    setModalState({ mode: "create", start: selectInfo.startStr, end: selectInfo.endStr });
+    const inclusiveEnd = addDaysToDateString(selectInfo.endStr, -1);
+    setModalState({ mode: "create", start: selectInfo.startStr, end: inclusiveEnd });
     selectInfo.view.calendar.unselect();
   }
 
@@ -81,15 +90,16 @@ export function CalendarView() {
   return (
     <div className="rounded-xl border border-line bg-paper p-4 shadow-sm">
       <FullCalendar
-        plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+        plugins={[dayGridPlugin, interactionPlugin]}
         initialView="dayGridMonth"
         headerToolbar={{
           left: "prev,next today",
           center: "title",
-          right: "dayGridMonth,timeGridWeek,timeGridDay",
+          right: "dayGridMonth,dayGridWeek",
         }}
         locales={[jaLocale]}
         locale="ja"
+        buttonText={{ today: "今日", month: "月", week: "週" }}
         selectable
         selectMirror
         events={events}
@@ -114,7 +124,7 @@ export function CalendarView() {
           <p className="font-medium text-ink">貸出製品</p>
           <ul className="mt-1 flex flex-col gap-0.5 text-muted">
             {(hoveredReservation.reservation.items ?? []).map((item) => (
-              <li key={item.equipmentId}>{item.equipmentName}</li>
+              <li key={item.equipmentId}>{formatItemLabel(item)}</li>
             ))}
           </ul>
         </div>

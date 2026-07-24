@@ -1,32 +1,32 @@
-export function toDatetimeLocalValue(iso: string): string {
+export function toDateInputValue(iso: string): string {
   const date = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours()
-  )}:${pad(date.getMinutes())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-export function fromDatetimeLocalValue(value: string): string {
-  return new Date(value).toISOString();
+/** 日付文字列(YYYY-MM-DD)をその日の開始時刻のISO文字列に変換する */
+export function startOfDayISO(value: string): string {
+  return new Date(`${value}T00:00:00`).toISOString();
 }
 
-export function formatDateTimeJa(iso: string): string {
+/** 日付文字列(YYYY-MM-DD)をその日の終了時刻のISO文字列に変換する */
+export function endOfDayISO(value: string): string {
+  return new Date(`${value}T23:59:59.999`).toISOString();
+}
+
+/** 日付文字列(YYYY-MM-DD)に日数を加算した日付文字列を返す */
+export function addDaysToDateString(value: string, days: number): string {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + days);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+export function formatDateJa(iso: string): string {
   return new Intl.DateTimeFormat("ja-JP", {
     month: "numeric",
     day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    weekday: "short",
   }).format(new Date(iso));
-}
-
-export function formatRelativeDeadline(iso: string, now: Date = new Date()): string {
-  const diffMinutes = Math.round((new Date(iso).getTime() - now.getTime()) / 60_000);
-
-  if (diffMinutes <= 0) {
-    const overdueMinutes = Math.abs(diffMinutes);
-    if (overdueMinutes < 60) return `期限超過(${overdueMinutes}分超過)`;
-    return `期限超過(${Math.round(overdueMinutes / 60)}時間超過)`;
-  }
-  if (diffMinutes < 60) return `あと${diffMinutes}分`;
-  return `あと${Math.round(diffMinutes / 60)}時間`;
 }

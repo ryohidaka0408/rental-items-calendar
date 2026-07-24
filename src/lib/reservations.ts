@@ -63,25 +63,31 @@ export async function findOverlaps(
 export type AvailabilityResult = {
   quantity: number;
   reservedCount: number;
+  requestedQuantity: number;
   remaining: number;
   isAvailable: boolean;
 };
 
-/** 保有台数(quantity)を考慮し、指定時間帯に空きがあるかを判定する */
+/** 保有台数(quantity)を考慮し、指定時間帯に希望数量分の空きがあるかを判定する */
 export async function checkAvailability(
   equipmentId: string,
   quantity: number,
+  requestedQuantity: number,
   start: string,
   end: string,
   excludeReservationId?: string
 ): Promise<AvailabilityResult> {
   const overlaps = await findOverlaps(equipmentId, start, end, excludeReservationId);
-  const reservedCount = overlaps.length;
+  const reservedCount = overlaps.reduce((sum, reservation) => {
+    const item = reservation.items?.find((i) => i.equipmentId === equipmentId);
+    return sum + (item?.quantity ?? 0);
+  }, 0);
   return {
     quantity,
     reservedCount,
+    requestedQuantity,
     remaining: Math.max(quantity - reservedCount, 0),
-    isAvailable: reservedCount < quantity,
+    isAvailable: reservedCount + requestedQuantity <= quantity,
   };
 }
 
@@ -91,7 +97,8 @@ export class ReservationConflictError extends Error {
 
   constructor(equipmentName: string, availability: AvailabilityResult) {
     super(
-      `${equipmentName}: 指定の時間帯は在庫が埋まっています(${availability.reservedCount}/${availability.quantity}台予約済み)`
+      `${equipmentName}: 希望数量${availability.requestedQuantity}台を確保できません` +
+        `(保有${availability.quantity}台中、既に${availability.reservedCount}台予約済み)`
     );
     this.name = "ReservationConflictError";
     this.equipmentName = equipmentName;
@@ -112,6 +119,7 @@ async function assertItemsAvailable(
     const availability = await checkAvailability(
       item.equipmentId,
       quantity,
+      item.quantity,
       input.start,
       input.end,
       excludeReservationId
@@ -154,18 +162,33 @@ export async function deleteReservation(id: string): Promise<void> {
 }
 
 /**
- * 返却期限が近い(または過ぎている)確定予約を取得する。
+ * 返却日が本日の確定予約を取得する。
  * Cloud Functions等からの通知バッチでも再利用できるよう独立した関数として切り出している。
  */
-export async function getUpcomingDeadlines(
-  hoursAhead: number = 24,
-  now: Date = new Date()
-): Promise<Reservation[]> {
-  const cutoff = new Date(now.getTime() + hoursAhead * 60 * 60 * 1000).toISOString();
+export async function getReservationsDueToday(now: Date = new Date()): Promise<Reservation[]> {
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    0,
+    0,
+    0,
+    0
+  ).toISOString();
+  const endOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    23,
+    59,
+    59,
+    999
+  ).toISOString();
   const q = query(
     reservationsCollection,
     where("status", "==", "confirmed"),
-    where("end", "<=", cutoff),
+    where("end", ">=", startOfToday),
+    where("end", "<=", endOfToday),
     orderBy("end", "asc")
   );
   const snapshot = await getDocs(q);
@@ -187,8 +210,8 @@ export async function getActiveReservationCounts(
   snapshot.docs.forEach((docSnapshot) => {
     const reservation = toReservation(docSnapshot.id, docSnapshot.data());
     if (reservation.start <= nowISO && reservation.end >= nowISO) {
-      (reservation.equipmentIds ?? []).forEach((equipmentId) => {
-        counts[equipmentId] = (counts[equipmentId] ?? 0) + 1;
+      (reservation.items ?? []).forEach((item) => {
+        counts[item.equipmentId] = (counts[item.equipmentId] ?? 0) + item.quantity;
       });
     }
   });

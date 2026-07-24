@@ -14,8 +14,6 @@ function translateAuthError(error: unknown): string {
         return "メールアドレスまたはパスワードが正しくありません";
       case "auth/invalid-email":
         return "メールアドレスの形式が正しくありません";
-      case "auth/popup-closed-by-user":
-        return "ログインがキャンセルされました";
       default:
         return "認証に失敗しました。時間を置いて再度お試しください";
     }
@@ -24,7 +22,7 @@ function translateAuthError(error: unknown): string {
 }
 
 export default function LoginPage() {
-  const { user, loading, signInWithEmail, signInWithGoogle } = useAuth();
+  const { user, loading, signInWithEmail } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -43,19 +41,6 @@ export default function LoginPage() {
     setError(null);
     try {
       await signInWithEmail(email, password);
-      router.replace("/");
-    } catch (err) {
-      setError(translateAuthError(err));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function handleGoogleSignIn() {
-    setSubmitting(true);
-    setError(null);
-    try {
-      await signInWithGoogle();
       router.replace("/");
     } catch (err) {
       setError(translateAuthError(err));
@@ -111,21 +96,6 @@ export default function LoginPage() {
             ログイン
           </button>
         </form>
-
-        <div className="mt-4 flex items-center gap-3 text-xs text-muted">
-          <span className="h-px flex-1 bg-line" />
-          または
-          <span className="h-px flex-1 bg-line" />
-        </div>
-
-        <button
-          type="button"
-          onClick={handleGoogleSignIn}
-          disabled={submitting}
-          className="mt-4 w-full rounded-md border border-line px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface disabled:opacity-50"
-        >
-          Googleアカウントでログイン
-        </button>
 
         <p className="mt-6 text-center text-xs text-muted">
           利用には管理者による事前の利用登録が必要です。

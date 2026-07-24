@@ -15,6 +15,8 @@ export type ReservationStatus = "confirmed" | "cancelled";
 export type ReservationEquipmentItem = {
   equipmentId: string;
   equipmentName: string;
+  /** この予約で使用する数量(機器の保有台数以下) */
+  quantity: number;
 };
 
 export type ReservationInput = {

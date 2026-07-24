@@ -10,12 +10,11 @@ import {
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
-  signInWithPopup,
   signOut,
   type User,
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { auth, db, googleProvider } from "./firebase";
+import { auth, db } from "./firebase";
 
 export type AuthorizationState = "checking" | "authorized" | "denied";
 
@@ -24,7 +23,6 @@ type AuthContextValue = {
   loading: boolean;
   authorization: AuthorizationState;
   signInWithEmail: (email: string, password: string) => Promise<void>;
-  signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
 };
 
@@ -67,9 +65,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     authorization,
     async signInWithEmail(email, password) {
       await signInWithEmailAndPassword(auth, email, password);
-    },
-    async signInWithGoogle() {
-      await signInWithPopup(auth, googleProvider);
     },
     async logout() {
       await signOut(auth);
