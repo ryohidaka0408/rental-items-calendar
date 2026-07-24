@@ -80,7 +80,9 @@ export async function checkAvailability(
   const overlaps = await findOverlaps(equipmentId, start, end, excludeReservationId);
   const reservedCount = overlaps.reduce((sum, reservation) => {
     const item = reservation.items?.find((i) => i.equipmentId === equipmentId);
-    return sum + (item?.quantity ?? 0);
+    // quantityフィールド追加前に作成された予約データとの互換性のため、
+    // 未設定の場合は1台分として扱う
+    return sum + (item ? item.quantity ?? 1 : 0);
   }, 0);
   return {
     quantity,
@@ -211,7 +213,8 @@ export async function getActiveReservationCounts(
     const reservation = toReservation(docSnapshot.id, docSnapshot.data());
     if (reservation.start <= nowISO && reservation.end >= nowISO) {
       (reservation.items ?? []).forEach((item) => {
-        counts[item.equipmentId] = (counts[item.equipmentId] ?? 0) + item.quantity;
+        const quantity = item.quantity ?? 1;
+        counts[item.equipmentId] = (counts[item.equipmentId] ?? 0) + quantity;
       });
     }
   });
